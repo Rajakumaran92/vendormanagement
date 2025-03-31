@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Products - AR Traders</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .product-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .product-name {
+            font-size: 1.2rem;
+            margin: 0 0 10px 0;
+        }
+        .product-price {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .product-description {
+            color: #666;
+            margin: 10px 0;
+        }
+        .stock-info {
+            color: #28a745;
+        }
+        .logout-btn {
+            padding: 8px 16px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+        .logout-btn:hover {
+            background-color: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Products</h1>
+            <a href="{% url 'logout' %}" class="logout-btn">Logout</a>
+        </div>
+        
+        <div class="products-grid">
+            {% for product in products %}
+            <div class="product-card">
+                <h2 class="product-name">{{ product.name }}</h2>
+                <p class="product-price">₹{{ product.price }}</p>
+                <p class="product-description">{{ product.description }}</p>
+                <p class="stock-info">In Stock: {{ product.stock_quantity }}</p>
+                {% if product.warranty_days %}
+                <p>Warranty: {{ product.warranty_days }} days</p>
+                {% endif %}
+            </div>
+            {% empty %}
+            <p>No products available.</p>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

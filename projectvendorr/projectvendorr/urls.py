@@ -19,6 +19,7 @@ from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
-    path("admin/", admin.site.urls),  # ✅ Admin Panel
-    path("api/", include("vendorapp.urls")),  # ✅ Include vendorapp API routes
+    path("admin/", admin.site.urls),
+    path("api/", include("vendorapp.urls")),  # For API endpoints
+    path("", include("vendorapp.urls")),  # For UI-based views at root level
 ]
