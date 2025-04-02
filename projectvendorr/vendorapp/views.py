@@ -229,13 +229,41 @@ def ui_login(request):
     
     return render(request, 'vendorapp/login.html')
 
+def is_valid_user(user):
+    """Check if user is either a Customer or AR Trader"""
+    return user.groups.filter(name__in=["Customers", "AR Traders"]).exists()
+
+@login_required(login_url='login')
+@user_passes_test(is_valid_user, login_url='customer-login')
+def product_list(request):
+    """Display list of products. Accessible to both Customers and AR Traders."""
+    products = Product.objects.all()
+    return render(request, 'vendorapp/product_list.html', {'products': products})
+
 def is_ar_trader(user):
     """Check if user is in AR Traders group"""
     return user.groups.filter(name="AR Traders").exists()
 
-@login_required(login_url='login')
-@user_passes_test(is_ar_trader, login_url='login')
-def product_list(request):
-    """Display list of products. Only accessible to AR Traders."""
-    products = Product.objects.all()
-    return render(request, 'vendorapp/product_list.html', {'products': products})
+def is_customer(user):
+    """Check if user is in Customers group"""
+    return user.groups.filter(name="Customers").exists()
+
+def customer_login(request):
+    """Handle Customer UI-based login"""
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        
+        if email and password:
+            user = authenticate(request, email=email, password=password)
+            if user is not None and is_customer(user):
+                login(request, user)
+                return redirect('product-list')
+            else:
+                return render(request, 'vendorapp/customer_login.html', 
+                            {'error': 'Invalid credentials or not a customer account'})
+        else:
+            return render(request, 'vendorapp/customer_login.html', 
+                        {'error': 'Please provide both email and password'})
+    
+    return render(request, 'vendorapp/customer_login.html')

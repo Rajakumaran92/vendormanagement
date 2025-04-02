@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Login - AR Traders</title>
+    <title>Customer Login</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -38,32 +38,38 @@
         button {
             width: 100%;
             padding: 0.75rem;
-            background-color: #007bff;
+            background-color: #28a745;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
         }
         button:hover {
-            background-color: #0056b3;
+            background-color: #218838;
         }
         .error-message {
             color: red;
             margin-bottom: 1rem;
         }
+        .register-link {
+            text-align: center;
+            margin-top: 1rem;
+        }
+        .register-link a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .register-link a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <h2 style="text-align: center; margin-bottom: 2rem;">AR Traders Login</h2>
+        <h2 style="text-align: center; margin-bottom: 2rem;">Customer Login</h2>
         {% if error %}
         <div class="error-message">
             {{ error }}
-        </div>
-        {% endif %}
-        {% if request.GET.next %}
-        <div class="error-message">
-            This page is only for AR Traders. If you are a customer, please <a href="{% url 'customer-login' %}">login here</a>.
         </div>
         {% endif %}
         <form method="POST">
@@ -78,9 +84,9 @@
             </div>
             <button type="submit">Login</button>
         </form>
-        <p style="text-align: center; margin-top: 1rem;">
-            New admin? <a href="{% url 'artraders-register' %}">Register here</a>
-        </p>
+        <div class="register-link">
+            <p>New customer? <a href="/api/customers/register/">Register here</a></p>
+        </div>
     </div>
 </body>
 </html>
