@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register Product</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+        select, input[type="date"] {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        .error-message {
+            color: red;
+            margin-bottom: 1rem;
+        }
+        .success-message {
+            color: green;
+            margin-bottom: 1rem;
+        }
+        .product-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .warranty-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 style="text-align: center; margin-bottom: 2rem;">Register Your Product</h2>
+        
+        {% if error %}
+        <div class="error-message">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        {% if success %}
+        <div class="success-message">
+            {{ success }}
+        </div>
+        {% endif %}
+
+        <form method="POST">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="product">Select Product:</label>
+                <select id="product" name="product" required>
+                    <option value="">Select a product...</option>
+                    {% for product in products %}
+                    <option value="{{ product.id }}" data-warranty="{{ product.warranty_days }}">
+                        {{ product.name }} - Warranty: {{ product.warranty_days }} days
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div id="productDetails" class="product-info" style="display: none;">
+                <h3>Product Details:</h3>
+                <p id="productName"></p>
+                <p id="warrantyDays"></p>
+            </div>
+
+            <div class="form-group">
+                <label for="purchase_date">Purchase Date:</label>
+                <input type="date" id="purchase_date" name="purchase_date" required>
+            </div>
+
+            <div id="warrantyInfo" class="warranty-info" style="display: none;">
+                <h3>Warranty Information:</h3>
+                <p id="warrantyExpiry"></p>
+            </div>
+
+            <button type="submit">Register Product</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('product').addEventListener('change', function() {
+            const select = this;
+            const selectedOption = select.options[select.selectedIndex];
+            const warrantyDays = selectedOption.getAttribute('data-warranty');
+            const productDetails = document.getElementById('productDetails');
+            const warrantyInfo = document.getElementById('warrantyInfo');
+            
+            if (select.value) {
+                productDetails.style.display = 'block';
+                document.getElementById('productName').textContent = 'Selected: ' + selectedOption.text;
+                document.getElementById('warrantyDays').textContent = 'Warranty Period: ' + warrantyDays + ' days';
+            } else {
+                productDetails.style.display = 'none';
+            }
+        });
+
+        document.getElementById('purchase_date').addEventListener('change', function() {
+            const purchaseDate = new Date(this.value);
+            const select = document.getElementById('product');
+            const warrantyDays = select.options[select.selectedIndex].getAttribute('data-warranty');
+            const warrantyInfo = document.getElementById('warrantyInfo');
+            
+            if (this.value && warrantyDays) {
+                const expiryDate = new Date(purchaseDate);
+                expiryDate.setDate(expiryDate.getDate() + parseInt(warrantyDays));
+                warrantyInfo.style.display = 'block';
+                document.getElementById('warrantyExpiry').textContent = 
+                    'Warranty will expire on: ' + expiryDate.toLocaleDateString();
+            } else {
+                warrantyInfo.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,15 +1,21 @@
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.response import Response
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils.timezone import now
 from datetime import timedelta
 from django.contrib.auth import authenticate, login, get_user_model
 from django.contrib.auth.models import Group
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.permissions import AllowAny
-from django.shortcuts import render, redirect
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.template.loader import render_to_string
+from django.core.mail import EmailMessage
+from django.conf import settings
+from datetime import datetime
+from .tasks import send_registration_email, send_product_registration_email, send_email_task
 
 from .models import Vendor, PurchaseOrder, Product, ProductRegistration, Invoice, WarrantyClaim
 from .serializers import (
@@ -45,14 +51,76 @@ class VendorViewSet(viewsets.ModelViewSet):
         vendor.save()
         return Response({"status": "Vendor approved"})
 
+    @action(detail=False, methods=["post"], permission_classes=[permissions.AllowAny])
+    def register(self, request):
+        """Register a new Vendor"""
+        # Create user first
+        user_data = {
+            'email': request.data.get('email'),
+            'username': request.data.get('email'),  # Use email as username
+            'password': request.data.get('password')
+        }
+        user_serializer = UserSerializer(data=user_data)
+        if user_serializer.is_valid():
+            user = user_serializer.save()
+            user.set_password(user_data['password'])  # Hash password
+            user.save()
+
+            # Create vendor
+            vendor_data = {
+                'user': user.id,
+                'name': request.data.get('name'),
+                'contact_email': request.data.get('email'),
+                'phone': request.data.get('phone', ''),
+                'address': request.data.get('address', ''),
+                'gstin': request.data.get('gstin'),
+                'is_approved': False  # New vendors need approval
+            }
+            vendor_serializer = self.get_serializer(data=vendor_data)
+            if vendor_serializer.is_valid():
+                vendor = vendor_serializer.save()
+                
+                # Add user to Vendor group
+                vendor_group, _ = Group.objects.get_or_create(name="Vendor")
+                user.groups.add(vendor_group)
+
+                # Generate JWT Token
+                refresh = RefreshToken.for_user(user)
+                return Response({
+                    'user': user_serializer.data,
+                    'vendor': vendor_serializer.data,
+                    'access_token': str(refresh.access_token),
+                    'refresh_token': str(refresh)
+                })
+            else:
+                user.delete()  # Roll back user creation if vendor creation fails
+                return Response(vendor_serializer.errors, status=400)
+        return Response(user_serializer.errors, status=400)
+
 # ✅ Purchase Order ViewSet
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
-    queryset = PurchaseOrder.objects.all()
     serializer_class = PurchaseOrderSerializer
-    permission_classes = [permissions.IsAuthenticated, IsARTrader]
+    permission_classes = [permissions.IsAuthenticated]  # Base authentication
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["status"]
     search_fields = ["po_number"]
+
+    def get_queryset(self):
+        """Filter queryset based on user type"""
+        user = self.request.user
+        if user.groups.filter(name="AR Traders").exists():
+            return PurchaseOrder.objects.all()
+        elif user.groups.filter(name="Vendor").exists():
+            vendor = user.vendor_set.first()
+            if vendor:
+                return PurchaseOrder.objects.filter(vendor=vendor)
+        return PurchaseOrder.objects.none()
+
+    def get_permissions(self):
+        """Different permissions for different actions"""
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), IsARTrader()]
+        return [permissions.IsAuthenticated()]
 
 # ✅ Product ViewSet
 class ProductViewSet(viewsets.ModelViewSet):
@@ -134,9 +202,14 @@ class ProductSearchViewSet(viewsets.ReadOnlyModelViewSet):
 class ARTradersViewSet(viewsets.ModelViewSet):
     queryset = User.objects.filter(groups__name="AR Traders")
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsARTrader]
+    permission_classes = [permissions.IsAuthenticated]
 
-    @action(detail=False, methods=["post"], permission_classes=[permissions.AllowAny])
+    def get_permissions(self):
+        if self.action == 'register':
+            return [permissions.AllowAny()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=["post"])
     def register(self, request):
         """Register a new AR Trader"""
         serializer = self.get_serializer(data=request.data)
@@ -267,3 +340,182 @@ def customer_login(request):
                         {'error': 'Please provide both email and password'})
     
     return render(request, 'vendorapp/customer_login.html')
+
+def is_vendor(user):
+    """Check if user is in Vendor group"""
+    return user.groups.filter(name="Vendor").exists()
+
+def vendor_login(request):
+    """Handle Vendor UI-based login"""
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        
+        if email and password:
+            user = authenticate(request, email=email, password=password)
+            if user is not None and is_vendor(user):
+                login(request, user)
+                return redirect('purchase-order-list')  # Redirect to purchase orders page
+            else:
+                return render(request, 'vendorapp/vendor_login.html', 
+                            {'error': 'Invalid credentials or not a vendor account'})
+        else:
+            return render(request, 'vendorapp/vendor_login.html', 
+                        {'error': 'Please provide both email and password'})
+    
+    return render(request, 'vendorapp/vendor_login.html')
+
+@login_required(login_url='vendors/login/')
+@user_passes_test(is_vendor)
+def purchase_order_list(request):
+    """Display list of purchase orders for vendor."""
+    # Get vendor associated with logged in user
+    vendor = Vendor.objects.get(user=request.user)
+    orders = PurchaseOrder.objects.filter(vendor=vendor)
+    return render(request, 'vendorapp/purchase_order_list.html', {'orders': orders})
+
+def vendor_register(request):
+    """Handle vendor registration through UI"""
+    if request.method == 'POST':
+        # Get form data
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        name = request.POST.get('name')
+        phone = request.POST.get('phone')
+        address = request.POST.get('address')
+        gstin = request.POST.get('gstin')
+
+        # Create user first
+        user_data = {
+            'email': email,
+            'username': email,  # Use email as username
+            'password': password
+        }
+        user_serializer = UserSerializer(data=user_data)
+        if user_serializer.is_valid():
+            user = user_serializer.save()
+            user.set_password(password)  # Hash password
+            user.save()
+
+            # Create vendor
+            vendor_data = {
+                'user': user.id,
+                'name': name,
+                'contact_email': email,
+                'phone': phone,
+                'address': address,
+                'gstin': gstin,
+                'is_approved': False
+            }
+            vendor_serializer = VendorSerializer(data=vendor_data)
+            if vendor_serializer.is_valid():
+                vendor = vendor_serializer.save()
+                
+                # Add user to Vendor group
+                vendor_group, _ = Group.objects.get_or_create(name="Vendor")
+                user.groups.add(vendor_group)
+
+                # Log the user in
+                login(request, user)
+                return redirect('purchase-order-list')
+            else:
+                # If vendor creation fails, delete the user and show error
+                user.delete()
+                return render(request, 'vendorapp/vendor_register.html', 
+                            {'error': 'Invalid vendor data: ' + str(vendor_serializer.errors)})
+        else:
+            return render(request, 'vendorapp/vendor_register.html', 
+                        {'error': 'Invalid user data: ' + str(user_serializer.errors)})
+    
+    return render(request, 'vendorapp/vendor_register.html')
+
+@login_required(login_url='customer-login')
+@user_passes_test(is_customer, login_url='customer-login')
+def register_product(request):
+    """Handle product registration for customers"""
+    if request.method == 'POST':
+        product_id = request.POST.get('product')
+        purchase_date = request.POST.get('purchase_date')
+        
+        if product_id and purchase_date:
+            try:
+                product = Product.objects.get(id=product_id)
+                # Create product registration
+                registration = ProductRegistration.objects.create(
+                    customer=request.user,
+                    product=product,
+                    vendor=product.vendor,
+                    registration_date=purchase_date
+                )
+                
+                # Prepare context for email
+                context = {
+                    'customer_name': request.user.get_full_name() or request.user.email,
+                    'product_name': product.name,
+                    'serial_number': registration.serial_number,
+                    'registration_date': registration.registration_date.strftime('%Y-%m-%d'),
+                    'warranty_expiry_date': (registration.registration_date + timedelta(days=product.warranty_days)).strftime('%Y-%m-%d')
+                }
+
+                # Send email asynchronously using Celery
+                send_product_registration_email.delay(context, request.user.email)
+
+                return render(request, 'vendorapp/register_product.html', {
+                    'success': 'Product registered successfully! Your warranty is valid until ' + 
+                             (registration.registration_date + timedelta(days=product.warranty_days)).strftime('%Y-%m-%d') +
+                             '. A confirmation email will be sent to your email address.',
+                    'products': Product.objects.all()
+                })
+            except Product.DoesNotExist:
+                return render(request, 'vendorapp/register_product.html', {
+                    'error': 'Invalid product selected.',
+                    'products': Product.objects.all()
+                })
+            except Exception as e:
+                return render(request, 'vendorapp/register_product.html', {
+                    'error': str(e),
+                    'products': Product.objects.all()
+                })
+        else:
+            return render(request, 'vendorapp/register_product.html', {
+                'error': 'Please provide all required information.',
+                'products': Product.objects.all()
+            })
+    
+    # GET request - show the registration form
+    return render(request, 'vendorapp/register_product.html', {
+        'products': Product.objects.all()
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def test_email(request):
+    """
+    Test endpoint to send email using Celery
+    Expects JSON body with:
+    {
+        "subject": "Email subject",
+        "message": "Email message",
+        "to_email": "recipient@example.com"
+    }
+    """
+    subject = request.data.get('subject')
+    message = request.data.get('message')
+    to_email = request.data.get('to_email')
+    
+    if not all([subject, message, to_email]):
+        return Response({
+            'error': 'Please provide subject, message and to_email'
+        }, status=400)
+    
+    # Send email task to Celery
+    task = send_email_task.delay(
+        subject=subject,
+        message=message,
+        recipient_list=[to_email]
+    )
+    
+    return Response({
+        'message': 'Email task has been queued',
+        'task_id': task.id
+    })

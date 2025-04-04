@@ -56,6 +56,19 @@
         .logout-btn:hover {
             background-color: #c82333;
         }
+        .register-btn {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        .register-btn:hover {
+            background-color: #0056b3;
+        }
     </style>
 </head>
 <body>
@@ -74,6 +87,7 @@
                 <p class="stock-info">In Stock: {{ product.stock_quantity }}</p>
                 {% if product.warranty_days %}
                 <p>Warranty: {{ product.warranty_days }} days</p>
+                <a href="{% url 'register-product' %}" class="register-btn">Register This Product</a>
                 {% endif %}
             </div>
             {% empty %}

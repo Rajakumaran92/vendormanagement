@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'django_filters',
+    'django_celery_results',
+    'django_celery_beat',  # Add this line
 ]
 
 MIDDLEWARE = [
@@ -146,6 +148,21 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-
 AUTH_USER_MODEL = 'vendorapp.User'
+
+# Email backend configuration
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'raja.kmoorthy92@gmail.com'  # Add your email here
+EMAIL_HOST_PASSWORD = 'sxbr cweb ubrh fmtd'  # Add your app password here
+
+# Celery Configuration with RabbitMQ
+CELERY_BROKER_URL = 'amqp://localhost'
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_CACHE_BACKEND = 'django-cache'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
